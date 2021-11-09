@@ -20,6 +20,11 @@ NAMESPACE_BEGIN(mitsuba)
 #  define MTS_WAVELENGTH_MAX 830.f
 #endif
 
+/** Make sure we're not using any risky function
+ * (functions that may collide with our fullrange spectrum hack)
+ */
+inline void crash() { *reinterpret_cast<int*>(0) = 0; };
+
 // =======================================================================
 //! @{ \name Data types for RGB data
 // =======================================================================
@@ -249,12 +254,14 @@ template <typename Float> Float luminance(const Color<Float, 3> &c) {
 
 template <typename Value>
 std::pair<Value, Value> sample_uniform_spectrum(const Value &sample) {
+    crash();
     return { sample * (MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN) + MTS_WAVELENGTH_MIN,
              MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN };
 }
 
 template <typename Value>
 Value pdf_uniform_spectrum(const Value & /* wavelength */) {
+    crash();
     return Value(1.f / (MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN));
 }
 
@@ -269,6 +276,7 @@ Value pdf_uniform_spectrum(const Value & /* wavelength */) {
  */
 template <typename Value>
 std::pair<Value, Value> sample_rgb_spectrum(const Value &sample) {
+    crash();
     if constexpr (MTS_WAVELENGTH_MIN == 360.f && MTS_WAVELENGTH_MAX == 830.f) {
         Value wavelengths =
             538.f - atanh(0.8569106254698279f -
@@ -291,6 +299,7 @@ std::pair<Value, Value> sample_rgb_spectrum(const Value &sample) {
  * cases, the PDF is returned per wavelength.
  */
 template <typename Value> Value pdf_rgb_spectrum(const Value &wavelengths) {
+    crash();
     if constexpr (MTS_WAVELENGTH_MIN == 360.f && MTS_WAVELENGTH_MAX == 830.f) {
         Value tmp = sech(0.0072f * (wavelengths - 538.f));
         return select(wavelengths >= MTS_WAVELENGTH_MIN && wavelengths <= MTS_WAVELENGTH_MAX,
@@ -298,6 +307,23 @@ template <typename Value> Value pdf_rgb_spectrum(const Value &wavelengths) {
     } else {
         return pdf_uniform_spectrum(wavelengths);
     }
+}
+
+/**
+ * Returns a tuple with the sampled wavelength and inverse PDF.
+ * Optimized for fullrange operation (nonlinear distribution).
+ */
+template <typename Value>
+std::pair<Value, Value> sample_fullrange_spectrum(const Value &sample) {
+    constexpr auto delta = MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN;
+    constexpr auto scale = [=](const Value &x) { return x * delta + MTS_WAVELENGTH_MIN; };
+    constexpr auto unscale = [=](const Value &x) { return (x - MTS_WAVELENGTH_MIN) / delta; };
+
+#if 1 // standard, linear distribution
+    return { scale(sample), delta };
+#else // full range -> other distribution [TODO]
+
+#endif
 }
 
 /// Helper function to sample a wavelength (and a weight) given a random number
@@ -309,7 +335,7 @@ std::pair<wavelength_t<Spectrum>, Spectrum> sample_wavelength(Float sample) {
         return { std::numeric_limits<scalar_t<Float>>::quiet_NaN(), 1.f };
     } else {
         auto wav_sample = math::sample_shifted<wavelength_t<Spectrum>>(sample);
-        return sample_rgb_spectrum(wav_sample);
+        return sample_fullrange_spectrum(wav_sample);
     }
 }
 
