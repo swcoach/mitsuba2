@@ -1,3 +1,5 @@
+find_package(JPEG REQUIRED)
+
 include_directories(
   ${PNG_INCLUDE_DIRS}
   ${PUGIXML_INCLUDE_DIRS}
