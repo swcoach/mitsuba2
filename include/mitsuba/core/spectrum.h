@@ -249,8 +249,8 @@ template <typename Float> Float luminance(const Color<Float, 3> &c) {
 
 template <typename Value>
 std::pair<Value, Value> sample_uniform_spectrum(const Value &sample) {
-    return { sample * (MTS_CIE_MAX - MTS_CIE_MIN) + MTS_CIE_MIN,
-             MTS_CIE_MAX - MTS_CIE_MIN };
+    return { sample * (MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN) + MTS_WAVELENGTH_MIN,
+             MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN };
 }
 
 template <typename Value>
