@@ -313,16 +313,22 @@ template <typename Value> Value pdf_rgb_spectrum(const Value &wavelengths) {
  * Returns a tuple with the sampled wavelength and inverse PDF.
  * Optimized for fullrange operation (nonlinear distribution).
  */
-template <typename Value>
-std::pair<Value, Value> sample_fullrange_spectrum(const Value &sample) {
-    constexpr auto delta = MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN;
+template <typename Value, typename Float>
+std::pair<Value, Value> sample_fullrange_spectrum(const Value &sample, Float alpha) {
+    constexpr Float delta = MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN;
     constexpr auto scale = [=](const Value &x) { return x * delta + MTS_WAVELENGTH_MIN; };
     constexpr auto unscale = [=](const Value &x) { return (x - MTS_WAVELENGTH_MIN) / delta; };
 
 #if 1 // standard, linear distribution
     return { scale(sample), delta };
-#else // full range -> other distribution [TODO]
+#else // full range -> logarithmic distribution (STILL BUGGY)
+    const Float e0 = exp(-alpha*MTS_WAVELENGTH_MIN);
+    const Float e1 = exp(-alpha*MTS_WAVELENGTH_MAX);
+    const Float de = e0-e1;
+    const auto wl = scale((e0-exp(-alpha*scale(sample)))/de);
+    const auto invPdf = de/alpha*exp(alpha*scale(sample));
 
+    return { wl, invPdf };
 #endif
 }
 
@@ -335,7 +341,7 @@ std::pair<wavelength_t<Spectrum>, Spectrum> sample_wavelength(Float sample) {
         return { std::numeric_limits<scalar_t<Float>>::quiet_NaN(), 1.f };
     } else {
         auto wav_sample = math::sample_shifted<wavelength_t<Spectrum>>(sample);
-        return sample_fullrange_spectrum(wav_sample);
+        return sample_fullrange_spectrum(wav_sample, Float(0.001));
     }
 }
 
