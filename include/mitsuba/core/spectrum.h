@@ -23,7 +23,10 @@ NAMESPACE_BEGIN(mitsuba)
 /** Make sure we're not using any risky function
  * (functions that may collide with our fullrange spectrum hack)
  */
-inline void crash() { *reinterpret_cast<int*>(0) = 0; };
+inline void crash() {
+    std::cout << "FULL SPECTRUM HACK: use of banned function -> crashing" << std::endl;
+    *reinterpret_cast<int*>(0) = 0;
+};
 
 // =======================================================================
 //! @{ \name Data types for RGB data
