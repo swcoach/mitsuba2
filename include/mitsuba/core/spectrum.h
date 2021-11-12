@@ -329,9 +329,9 @@ std::pair<Value, Value> sample_fullrange_spectrum(const Value &sample, Float alp
     const Float e1 = exp(-alpha*MTS_WAVELENGTH_MAX);
     const Float de = e0-e1;
     const auto wl = scale((e0-exp(-alpha*scale(sample)))/de);
-    const auto invPdf = de/alpha*exp(alpha*scale(sample));
+    const auto inv_pdf = de/alpha*exp(alpha*scale(sample));
 
-    return { wl, invPdf };
+    return { wl, inv_pdf };
 #endif
 }
 
