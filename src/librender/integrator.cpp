@@ -16,6 +16,113 @@
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 
+// Dirty hack so that we can easily add other channels with custom sensors
+#include <filesystem>
+#include <algorithm>
+#include <fstream>
+namespace {
+    template<typename Scalar>
+    struct SpectrumElement {
+        SpectrumElement(Scalar w, Scalar v): wavelength(w), value(v) {};
+
+        Scalar wavelength;
+        Scalar value;
+    };
+
+    template<typename Scalar>
+    struct SpectrumProfile: private std::vector<SpectrumElement<Scalar>> {
+        explicit SpectrumProfile(const std::filesystem::path &path) {
+            // We cannot use mitsuba::spectrum_from_file because it needs an already initialized thread context
+            // This is the same algorithm, but rewritten to avoid TLS usage
+            typedef std::vector<SpectrumElement<Scalar>> Parent;
+
+            std::ifstream file(path);
+            std::string line;
+            while (std::getline(file, line)) {
+                if (line.size() == 0 || line[0] == '#')
+                    continue;
+
+                std::istringstream iss(line);
+                Scalar wav, value;
+                iss >> wav;
+                iss >> value;
+                Parent::emplace_back(wav, value);
+            }
+
+            std::sort(Parent::begin(), Parent::end(), [](const auto &a, const auto &b) { return a.wavelength < b.wavelength; });
+            // NOTE: duplicates will cause an error later
+        }
+
+        Scalar value(Scalar wavelength) const {
+            // Linear interpolation
+
+            typedef std::vector<SpectrumElement<Scalar>> Parent;
+            if (Parent::size() < 2 || wavelength < Parent::front().wavelength || wavelength > Parent::back().wavelength)
+                return 0.f;
+
+            size_t i = 0;
+            while (wavelength > Parent::operator[](i).wavelength)
+                ++i;
+
+            const auto &before = Parent::operator[](i - 1);
+            const auto &after = Parent::operator[](i);
+            const auto x1 = (wavelength - before.wavelength) / (after.wavelength - before.wavelength);
+            const auto x2 = (after.wavelength - wavelength) / (after.wavelength - before.wavelength);
+            return (x2 * before.value + x1 * after.value);
+        }
+    };
+
+    template<typename Scalar>
+    struct SensorProfile: public SpectrumProfile<Scalar> {
+        const std::string channel_name;
+
+        explicit SensorProfile(const std::filesystem::path &path): SpectrumProfile<Scalar>(path), channel_name(path_to_channel_name(path)) {
+        }
+
+        Scalar weight(Scalar wavelength) const {
+            typedef SpectrumProfile<Scalar> Parent;
+            return Parent::value(wavelength);
+        }
+
+        template<typename Float, size_t Size>
+        mitsuba::Spectrum<Float, Size> weights(const mitsuba::Spectrum<Float, Size> &wavelengths) const {
+            mitsuba::Spectrum<Float, Size> w;
+            for (size_t i = 0; i < Size; ++i)
+                w[i] = weight(wavelengths[i]);
+            return w;
+        }
+
+        private:
+        static std::string path_to_channel_name(const std::filesystem::path &path) {
+            auto name = path.stem().string();
+            std::replace(name.begin(), name.end(), '.', '_'); // '.' has a special meaning -> remove them
+            name += ".0";
+            return name;
+        }
+    };
+
+    template<typename Scalar>
+    struct CustomSensors: public std::vector<SensorProfile<Scalar>>
+    {
+        CustomSensors() {
+            for (const auto &dir_entry: std::filesystem::directory_iterator(".")) {
+                if (dir_entry.path().extension().string() == ".sensor")
+                    std::vector<SensorProfile<Scalar>>::emplace_back(dir_entry.path());
+            }
+        }
+    };
+
+    template<typename Scalar>
+    const CustomSensors<Scalar> custom_sensors;
+
+    template<typename Float, size_t Size>
+    Float spectrum_to_custom(const SensorProfile<mitsuba::scalar_t<Float>> &profile,
+                                                const mitsuba::Spectrum<Float, Size> &value,
+                                                const mitsuba::Spectrum<Float, Size> &wavelengths) {
+        return hmean(profile.weights(wavelengths) * value);
+    }
+}
+
 NAMESPACE_BEGIN(mitsuba)
 
 // -----------------------------------------------------------------------------
@@ -70,6 +177,11 @@ MTS_VARIANT bool SamplingIntegrator<Float, Spectrum>::render(Scene *scene, Senso
     // Insert default channels and set up the film
     for (size_t i = 0; i < 5; ++i)
         channels.insert(channels.begin() + i, std::string(1, "XYZAW"[i]));
+
+    // Hack: insert our custom sensor channels
+    for (size_t i = 0; i < custom_sensors<scalar_t<Float>>.size(); ++i)
+        channels.insert(channels.begin() + i + 5, custom_sensors<scalar_t<Float>>[i].channel_name);
+
     film->prepare(channels);
 
     m_render_timer.reset();
@@ -261,7 +373,7 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     ray.scale_differential(diff_scale_factor);
 
     const Medium *medium = sensor->medium();
-    std::pair<Spectrum, Mask> result = sample(scene, sampler, ray, medium, aovs + 5, active);
+    std::pair<Spectrum, Mask> result = sample(scene, sampler, ray, medium, aovs + custom_sensors<scalar_t<Float>>.size() + 5, active);
     result.first = ray_weight * result.first;
 
     UnpolarizedSpectrum spec_u = depolarize(result.first);
@@ -281,6 +393,14 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     aovs[2] = xyz.z();
     aovs[3] = select(result.second, Float(1.f), Float(0.f));
     aovs[4] = 1.f;
+
+    // Custom sensor channels
+    for (size_t i = 0; i < custom_sensors<scalar_t<Float>>.size(); ++i) {
+        if constexpr (is_spectral_v<Spectrum>)
+            aovs[5 + i] = spectrum_to_custom(custom_sensors<scalar_t<Float>>[i], spec_u, ray.wavelengths);
+        else
+            aovs[5 + i] = 0.;
+    }
 
     block->put(position_sample, aovs, active);
 
