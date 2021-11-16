@@ -13,11 +13,11 @@
 NAMESPACE_BEGIN(mitsuba)
 
 #if !defined(MTS_WAVELENGTH_MIN)
-#  define MTS_WAVELENGTH_MIN 360.f
+#  define MTS_WAVELENGTH_MIN 360.f // Full spectrum: should be 100.
 #endif
 
 #if !defined(MTS_WAVELENGTH_MAX)
-#  define MTS_WAVELENGTH_MAX 830.f
+#  define MTS_WAVELENGTH_MAX 830.f // Full spectrum: should be 100000.
 #endif
 
 /** Make sure we're not using any risky function
@@ -320,7 +320,6 @@ template <typename Value, typename Float>
 std::pair<Value, Value> sample_fullrange_spectrum(const Value &sample, Float alpha) {
     constexpr Float delta = MTS_WAVELENGTH_MAX - MTS_WAVELENGTH_MIN;
     constexpr auto scale = [=](const Value &x) { return x * delta + MTS_WAVELENGTH_MIN; };
-    constexpr auto unscale = [=](const Value &x) { return (x - MTS_WAVELENGTH_MIN) / delta; };
 
 #if 1 // standard, linear distribution
     return { scale(sample), delta };
@@ -330,7 +329,6 @@ std::pair<Value, Value> sample_fullrange_spectrum(const Value &sample, Float alp
     const Float de = e0-e1;
     const auto wl = scale((e0-exp(-alpha*scale(sample)))/de);
     const auto inv_pdf = de/alpha*exp(alpha*scale(sample));
-
     return { wl, inv_pdf };
 #endif
 }
@@ -340,6 +338,7 @@ template <typename Float, typename Spectrum>
 std::pair<wavelength_t<Spectrum>, Spectrum> sample_wavelength(Float sample) {
     if constexpr (!is_spectral_v<Spectrum>) {
         ENOKI_MARK_USED(sample);
+        crash();
         // Note: wavelengths should not be used when rendering in RGB mode.
         return { std::numeric_limits<scalar_t<Float>>::quiet_NaN(), 1.f };
     } else {
