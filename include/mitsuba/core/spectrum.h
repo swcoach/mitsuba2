@@ -13,11 +13,11 @@
 NAMESPACE_BEGIN(mitsuba)
 
 #if !defined(MTS_WAVELENGTH_MIN)
-#  define MTS_WAVELENGTH_MIN 360.f // Full spectrum: should be 100.
+#  define MTS_WAVELENGTH_MIN 100.f // was 360.
 #endif
 
 #if !defined(MTS_WAVELENGTH_MAX)
-#  define MTS_WAVELENGTH_MAX 830.f // Full spectrum: should be 100000.
+#  define MTS_WAVELENGTH_MAX 14000.f // was 830.
 #endif
 
 /** Make sure we're not using any risky function
